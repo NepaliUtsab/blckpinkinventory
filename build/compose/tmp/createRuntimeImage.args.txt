@@ -11,4 +11,4 @@
 --no-man-pages
 --strip-native-commands
 --output
-"/Users/utsab/Desktop/Projects/blackandpink/build/compose/tmp/main/runtime"
+"/app/build/compose/tmp/main/runtime"

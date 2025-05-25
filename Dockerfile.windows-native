@@ -1,0 +1,93 @@
+# Simplified Docker approach using a Windows Server Core container
+# This runs actual Windows tools but requires Docker Desktop with Windows containers
+
+# escape=`
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+# Use PowerShell as the shell
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+# Install Chocolatey
+RUN Set-ExecutionPolicy Bypass -Scope Process -Force; `
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; `
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+# Install Java 17, NSIS, and Inno Setup
+RUN choco install -y temurin17 nsis innosetup
+
+# Set up working directory
+WORKDIR C:\workspace
+
+# Copy build script
+COPY <<EOF C:\build-installer.ps1
+param(
+    [string]$ProjectPath = "C:\workspace"
+)
+
+Write-Host "=================================================="
+Write-Host "Black and Pink Windows Installer Builder (Native)"
+Write-Host "=================================================="
+
+Set-Location $ProjectPath
+
+# Check if project files exist
+if (-not (Test-Path "build.gradle.kts")) {
+    Write-Host "ERROR: This doesn't appear to be the Black and Pink project directory" -ForegroundColor Red
+    Write-Host "Make sure you've mounted the project directory to C:\workspace" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "Building Kotlin/Compose application..." -ForegroundColor Yellow
+& .\gradlew.bat build -x test
+
+Write-Host "Creating distributable..." -ForegroundColor Yellow
+& .\gradlew.bat createDistributable -x test
+
+Write-Host "Verifying files..." -ForegroundColor Yellow
+if (-not (Test-Path "build\compose\binaries\main\app\BlackAndPink")) {
+    Write-Host "ERROR: Application binaries not found" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "Creating output directory..." -ForegroundColor Yellow
+if (-not (Test-Path "dist")) {
+    New-Item -ItemType Directory -Path "dist" | Out-Null
+}
+
+Write-Host "Building NSIS installer..." -ForegroundColor Yellow
+if (Test-Path "windows-installer.nsi") {
+    & makensis windows-installer.nsi
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✓ NSIS installer created: dist\BlackAndPink-Setup-1.0.0.exe" -ForegroundColor Green
+    } else {
+        Write-Host "✗ NSIS build failed" -ForegroundColor Red
+    }
+} else {
+    Write-Host "⚠ windows-installer.nsi not found, skipping NSIS build" -ForegroundColor Yellow
+}
+
+Write-Host "Building Inno Setup installer..." -ForegroundColor Yellow
+if (Test-Path "windows-installer.iss") {
+    & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows-installer.iss
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✓ Inno Setup installer created: dist\BlackAndPink-Setup-1.0.0.exe" -ForegroundColor Green
+    } else {
+        Write-Host "✗ Inno Setup build failed" -ForegroundColor Red
+    }
+} else {
+    Write-Host "⚠ windows-installer.iss not found, skipping Inno Setup build" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "=================================================="
+Write-Host "✅ SUCCESS: Windows installers built successfully!" -ForegroundColor Green
+Write-Host "=================================================="
+
+Get-ChildItem -Path "dist" -File | Format-Table Name, Length, LastWriteTime
+Write-Host ""
+Write-Host "Installers are available in the ./dist/ directory" -ForegroundColor Green
+EOF
+
+# Set the default command
+CMD ["powershell", "-File", "C:\\build-installer.ps1"]

@@ -160,27 +160,159 @@ jobs:
     - name: Build application
       run: ./gradlew build -x test
       
-    - name: Package MSI
-      run: ./gradlew packageMsi -x test
-      
-    - name: Create distributable
+    - name: Create distributable first
       run: ./gradlew createDistributable -x test
       
-    - name: Install NSIS
+    - name: Install Windows SDK and dependencies
       run: |
+        # Install WiX Toolset for MSI creation
+        choco install wixtoolset -y
+        # Install NSIS for NSIS installer
         choco install nsis -y
-        
-    - name: Build NSIS installer
+        # Refresh environment variables
+        refreshenv
+      shell: powershell
+      
+    - name: Try Package MSI (with fallback)
+      id: package_msi
+      run: |
+        try {
+          Write-Host "Attempting to create MSI package..."
+          
+          # Check Java and jpackage availability
+          java -version
+          & "$env:JAVA_HOME\bin\jpackage.exe" --version
+          
+          # Ensure distributable exists
+          if (-not (Test-Path "build\compose\binaries\main\app")) {
+            Write-Host "Distributable not found, creating it first..."
+            ./gradlew createDistributable -x test --info
+          }
+          
+          # List files in the app directory
+          Write-Host "Files in distributable:"
+          Get-ChildItem "build\compose\binaries\main\app" -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+          
+          # Try packaging MSI with verbose output
+          Write-Host "Running packageMsi..."
+          ./gradlew packageMsi -x test --info --debug --stacktrace
+          
+          # Check if MSI was created
+          if (Test-Path "build\compose\binaries\main\msi\*.msi") {
+            $msiFiles = Get-ChildItem "build\compose\binaries\main\msi\*.msi"
+            Write-Host "MSI created successfully: $($msiFiles[0].Name)"
+            echo "msi_success=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "MSI file not found after packaging"
+            echo "msi_success=false" >> $env:GITHUB_OUTPUT
+          }
+        } catch {
+          Write-Host "MSI packaging failed with error: $_"
+          Write-Host "Exception details: $($_.Exception.Message)"
+          Write-Host "Stack trace: $($_.ScriptStackTrace)"
+          
+          # Try to get jpackage logs
+          if (Test-Path "build\compose\logs\packageMsi") {
+            Write-Host "=== jpackage logs ==="
+            Get-ChildItem "build\compose\logs\packageMsi\*.txt" | ForEach-Object {
+              Write-Host "--- $($_.Name) ---"
+              Get-Content $_.FullName | Write-Host
+            }
+          }
+          
+          echo "msi_success=false" >> $env:GITHUB_OUTPUT
+        }
+      shell: powershell
+      continue-on-error: true
+      
+    - name: Build NSIS installer as primary/fallback
       run: |
         # Create dist directory
         New-Item -ItemType Directory -Force -Path "dist"
         
-        # Build NSIS installer
-        makensis windows-installer.nsi
+        # Create expected directory structure for NSIS
+        New-Item -ItemType Directory -Force -Path "build\windows-dist\BlackAndPink"
+        
+        # Copy distributable files to expected location for NSIS
+        if (Test-Path "build\compose\binaries\main\app") {
+          # Use the createDistributable output
+          Copy-Item -Path "build\compose\binaries\main\app\*" -Destination "build\windows-dist\BlackAndPink" -Recurse -Force
+          Write-Host "Copied from compose distributable"
+        } else {
+          # Fallback: create manual structure
+          Copy-Item -Path "build\libs\*.jar" -Destination "build\windows-dist\BlackAndPink" -Force
+          Copy-Item -Path "src\jvmMain\resources\icon.ico" -Destination "build\windows-dist\BlackAndPink\icon.ico" -Force
+          
+          # Create batch launcher
+          @"
+@echo off
+cd /d "%~dp0"
+java -jar "blackandpink-jvm-1.0.0.jar"
+"@ | Out-File -FilePath "build\windows-dist\BlackAndPink\BlackAndPink.bat" -Encoding ASCII
+          Write-Host "Created manual structure"
+        }
+        
+        # Verify files exist
+        Get-ChildItem "build\windows-dist\BlackAndPink" -Recurse | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+        
+        # Build NSIS installer using the simplified script
+        makensis windows-installer-simple.nsi
+        
+        # Move installer to dist directory if it wasn't created there
+        if (Test-Path "BlackAndPink-Setup-1.0.0.exe") {
+          Move-Item "BlackAndPink-Setup-1.0.0.exe" "dist\BlackAndPink-Setup-1.0.0.exe" -Force
+        }
+        
+        # Verify the installer was created
+        if (Test-Path "dist\BlackAndPink-Setup-1.0.0.exe") {
+          Write-Host "NSIS installer created successfully"
+          $size = (Get-Item "dist\BlackAndPink-Setup-1.0.0.exe").Length
+          Write-Host "Installer size: $([math]::Round($size/1MB,2))MB"
+          echo "nsis_success=true" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "NSIS installer creation failed"
+          echo "nsis_success=false" >> $env:GITHUB_OUTPUT
+          exit 1
+        }
       shell: powershell
       
-    - name: Upload Windows MSI
+    - name: Validate installers
+      run: |
+        Write-Host "=== Installer Validation ==="
+        
+        $hasAnyInstaller = $false
+        
+        # Check MSI
+        if (Test-Path "build\compose\binaries\main\msi\*.msi") {
+          $msiFiles = Get-ChildItem "build\compose\binaries\main\msi\*.msi"
+          Write-Host "✅ MSI installer found: $($msiFiles[0].Name)"
+          Write-Host "   Size: $([math]::Round($msiFiles[0].Length/1MB,2))MB"
+          $hasAnyInstaller = $true
+        } else {
+          Write-Host "❌ No MSI installer found"
+        }
+        
+        # Check NSIS
+        if (Test-Path "dist\BlackAndPink-Setup-1.0.0.exe") {
+          $nsisFile = Get-Item "dist\BlackAndPink-Setup-1.0.0.exe"
+          Write-Host "✅ NSIS installer found: $($nsisFile.Name)"
+          Write-Host "   Size: $([math]::Round($nsisFile.Length/1MB,2))MB"
+          $hasAnyInstaller = $true
+        } else {
+          Write-Host "❌ No NSIS installer found"
+        }
+        
+        if (-not $hasAnyInstaller) {
+          Write-Host "💥 CRITICAL: No Windows installers were created!"
+          exit 1
+        } else {
+          Write-Host "✅ Windows installer build completed successfully"
+        }
+      shell: powershell
+      
+    - name: Upload Windows MSI (if available)
       uses: actions/upload-artifact@v4
+      if: steps.package_msi.outputs.msi_success == 'true'
       with:
         name: windows-msi
         path: build/compose/binaries/main/msi/*.msi
@@ -188,10 +320,21 @@ jobs:
         
     - name: Upload Windows NSIS installer
       uses: actions/upload-artifact@v4
+      if: always() && steps.package_msi.conclusion != 'skipped'
       with:
         name: windows-nsis-installer
         path: dist/*.exe
         retention-days: 30
+        
+    - name: Upload Windows build logs (for debugging)
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: windows-build-logs
+        path: |
+          build/compose/logs/**/*.txt
+          build/reports/problems/problems-report.html
+        retention-days: 7
         
   create-release:
     name: Create Release

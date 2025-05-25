@@ -82,3 +82,15 @@ Output/
 # Local environment files
 .env
 .env.local
+
+# Docker
+.docker/
+docker-compose.override.yml
+docker-compose.local.yml
+*.dockerignore
+
+# Docker build cache
+.docker-cache/
+
+# Wine-related files (from Docker Wine builds)
+.wine/

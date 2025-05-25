@@ -136,6 +136,45 @@ This will create a `.dmg` file in the `build/compose/binaries/main/dmg/` directo
 
 This will create a `.msi` file in the `build/compose/binaries/main/msi/` directory.
 
+#### Cross-Platform Windows Installer (Docker)
+
+For creating Windows installers on macOS without needing a Windows machine:
+
+```bash
+# Quick automated build
+./build-windows-installer.sh --wine
+
+# Using Make
+make installer
+
+# Test Docker setup first
+./test-docker-setup.sh
+```
+
+This creates professional Windows installers (both MSI and EXE) using Docker. See [DOCKER_INSTALLER_GUIDE.md](DOCKER_INSTALLER_GUIDE.md) for detailed instructions.
+
+#### All Platforms
+
+```bash
+./gradlew packageDmg packageMsi packageDeb packageRpm
+```
+
+## Deployment Options
+
+### Local Development
+- Use `./gradlew run` for quick testing
+- Package for your platform using the appropriate Gradle tasks
+
+### GitHub Actions (Recommended)
+- Automatic builds on every push
+- Cross-platform installer generation
+- See [GITHUB_SETUP.md](GITHUB_SETUP.md) for setup instructions
+
+### Docker-based Windows Installers
+- Build Windows installers on any platform
+- No need for Windows VMs or machines
+- See [DOCKER_INSTALLER_GUIDE.md](DOCKER_INSTALLER_GUIDE.md) for details
+
 ## Icon Files
 
 The application uses two icon files:

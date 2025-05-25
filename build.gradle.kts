@@ -69,14 +69,21 @@ compose.desktop {
                 // Add the application to Programs and Features
                 perUserInstall = false
                 // Unique identifier for the installer (change this for major updates)
-                upgradeUuid = "18159995-d967-4CD2-8885-77BFA97CFA9F"
+                upgradeUuid = "18159995-d967-4cd2-8885-77bfa97cfa9f"
                 // Add shortcut to desktop and start menu
                 shortcut = true
                 console = false
                 dirChooser = true
-                // MSI properties
+                // MSI properties - use simpler values for CI compatibility
                 msiPackageVersion = "1.0.0"
                 exePackageVersion = "1.0.0"
+                
+                // Additional properties for better CI compatibility
+                packageName = "BlackAndPink"
+                
+                // Try to make jpackage more reliable
+                jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
+                jvmArgs("--add-opens", "java.desktop/sun.awt=ALL-UNNAMED")
             }
             
             linux {

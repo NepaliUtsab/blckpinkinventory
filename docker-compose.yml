@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Wine-based approach (runs on any platform)
+  windows-installer-wine:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows-installer
+    container_name: blackandpink-windows-builder
+    volumes:
+      - .:/app
+      - ./dist:/app/dist
+    environment:
+      - DISPLAY=:99
+    working_dir: /app
+    command: ["build"]
+    profiles:
+      - wine
+
+  # Native Windows approach (requires Windows containers)
+  windows-installer-native:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows-native
+    container_name: blackandpink-windows-native
+    volumes:
+      - .:/app:rw
+    working_dir: /app
+    profiles:
+      - native
+
+  # Development environment with all tools
+  dev-environment:
+    image: eclipse-temurin:17-jdk
+    container_name: blackandpink-dev
+    volumes:
+      - .:/app
+      - gradle-cache:/root/.gradle
+    working_dir: /app
+    command: bash -c "chmod +x gradlew && ./gradlew build -x test"
+    profiles:
+      - dev
+
+volumes:
+  gradle-cache:

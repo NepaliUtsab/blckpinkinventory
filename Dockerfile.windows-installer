@@ -1,0 +1,163 @@
+# Multi-stage Docker file for building Windows installers on macOS
+# This uses a cross-platform approach that works on ARM64 (Apple Silicon)
+
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+
+# Install basic dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    unzip \
+    xvfb \
+    software-properties-common \
+    gnupg2 \
+    ca-certificates \
+    wine \
+    wine64 \
+    winetricks \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure Wine for the current architecture (handles both ARM64 and x86_64)
+ENV WINEARCH=win64
+ENV WINEPREFIX=/root/.wine
+RUN mkdir -p $WINEPREFIX
+
+# Install Java 17
+RUN apt-get update \
+    && apt-get install -y openjdk-17-jdk \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Java environment using a script to detect architecture
+RUN ARCH=$(dpkg --print-architecture) && \
+    ln -sf /usr/lib/jvm/java-17-openjdk-${ARCH} /usr/lib/jvm/java-17-openjdk
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# Initialize Wine (with proper display setup and error handling)
+RUN Xvfb :99 -screen 0 1024x768x16 -ac +extension GLX +render -noreset & \
+    sleep 2 && \
+    export DISPLAY=:99 && \
+    wine wineboot --init && \
+    wineserver -w || true
+
+# Install basic Windows dependencies using winetricks (simplified for compatibility)
+RUN Xvfb :99 -screen 0 1024x768x16 -ac +extension GLX +render -noreset & \
+    sleep 2 && \
+    export DISPLAY=:99 && \
+    winetricks -q corefonts && \
+    wineserver -w || true
+
+# Alternative installer approach using Python and cross-platform tools
+RUN pip3 install cx_Freeze pyinstaller
+
+# Install NSIS (native Linux version for better compatibility)
+RUN apt-get update && apt-get install -y nsis && rm -rf /var/lib/apt/lists/*
+
+# Download NSIS portable version as backup (more reliable than Wine installation)
+RUN cd /tmp && \
+    wget https://download.sourceforge.net/project/nsis/NSIS%203/3.09/nsis-3.09.zip && \
+    unzip nsis-3.09.zip -d /opt/ && \
+    rm nsis-3.09.zip
+
+# Set up NSIS environment
+ENV NSIS_HOME=/opt/nsis-3.09
+ENV PATH=$NSIS_HOME:$PATH
+
+# Create working directory
+WORKDIR /workspace
+
+# Create a comprehensive build script for Windows installer
+RUN echo '#!/bin/bash' > /usr/local/bin/build-installer.sh && \
+    echo 'set -e' >> /usr/local/bin/build-installer.sh && \
+    echo 'echo "Building Windows installer using cross-platform approach..."' >> /usr/local/bin/build-installer.sh && \
+    echo 'export DISPLAY=:99' >> /usr/local/bin/build-installer.sh && \
+    echo '# Clean up any existing X server locks' >> /usr/local/bin/build-installer.sh && \
+    echo 'rm -f /tmp/.X99-lock || true' >> /usr/local/bin/build-installer.sh && \
+    echo 'pkill -f "Xvfb :99" || true' >> /usr/local/bin/build-installer.sh && \
+    echo 'sleep 1' >> /usr/local/bin/build-installer.sh && \
+    echo 'Xvfb :99 -screen 0 1024x768x16 -ac +extension GLX +render -noreset &' >> /usr/local/bin/build-installer.sh && \
+    echo 'sleep 2' >> /usr/local/bin/build-installer.sh && \
+    echo 'echo "Build environment ready"' >> /usr/local/bin/build-installer.sh && \
+    echo '' >> /usr/local/bin/build-installer.sh && \
+    echo '# Function to create Windows distributable from macOS app bundle' >> /usr/local/bin/build-installer.sh && \
+    echo 'create_windows_dist() {' >> /usr/local/bin/build-installer.sh && \
+    echo '    local APP_DIR="/app"' >> /usr/local/bin/build-installer.sh && \
+    echo '    local BUILD_DIR="/app/build/compose/binaries/main"' >> /usr/local/bin/build-installer.sh && \
+    echo '    local WINDOWS_DIST="/app/build/windows-dist"' >> /usr/local/bin/build-installer.sh && \
+    echo '    ' >> /usr/local/bin/build-installer.sh && \
+    echo '    echo "Creating Windows distributable structure..."' >> /usr/local/bin/build-installer.sh && \
+    echo '    rm -rf "$WINDOWS_DIST"' >> /usr/local/bin/build-installer.sh && \
+    echo '    mkdir -p "$WINDOWS_DIST/BlackAndPink"' >> /usr/local/bin/build-installer.sh && \
+    echo '    ' >> /usr/local/bin/build-installer.sh && \
+    echo '    # Check if macOS app bundle exists' >> /usr/local/bin/build-installer.sh && \
+    echo '    if [ -d "$BUILD_DIR/app/BlackAndPink.app" ]; then' >> /usr/local/bin/build-installer.sh && \
+    echo '        echo "Using existing macOS app bundle..."' >> /usr/local/bin/build-installer.sh && \
+    echo '        cp -r "$BUILD_DIR/app/BlackAndPink.app/Contents/app/"* "$WINDOWS_DIST/BlackAndPink/"' >> /usr/local/bin/build-installer.sh && \
+    echo '        cp -r "$BUILD_DIR/app/BlackAndPink.app/Contents/runtime" "$WINDOWS_DIST/BlackAndPink/"' >> /usr/local/bin/build-installer.sh && \
+    echo '    else' >> /usr/local/bin/build-installer.sh && \
+    echo '        echo "Building JAR file for Windows distribution..."' >> /usr/local/bin/build-installer.sh && \
+    echo '        cd "$APP_DIR" && ./gradlew jvmJar' >> /usr/local/bin/build-installer.sh && \
+    echo '        cp build/libs/*.jar "$WINDOWS_DIST/BlackAndPink/"' >> /usr/local/bin/build-installer.sh && \
+    echo '    fi' >> /usr/local/bin/build-installer.sh && \
+    echo '    ' >> /usr/local/bin/build-installer.sh && \
+    echo '    # Create Windows launch script' >> /usr/local/bin/build-installer.sh && \
+    echo '    cat > "$WINDOWS_DIST/BlackAndPink/BlackAndPink.bat" << '\''EOF'\''' >> /usr/local/bin/build-installer.sh && \
+    echo '@echo off' >> /usr/local/bin/build-installer.sh && \
+    echo 'cd /d "%~dp0"' >> /usr/local/bin/build-installer.sh && \
+    echo 'if exist "runtime\\bin\\java.exe" (' >> /usr/local/bin/build-installer.sh && \
+    echo '    runtime\\bin\\java.exe -jar blackandpink-jvm-1.0.0.jar' >> /usr/local/bin/build-installer.sh && \
+    echo ') else (' >> /usr/local/bin/build-installer.sh && \
+    echo '    java -jar blackandpink-jvm-1.0.0.jar' >> /usr/local/bin/build-installer.sh && \
+    echo ')' >> /usr/local/bin/build-installer.sh && \
+    echo 'EOF' >> /usr/local/bin/build-installer.sh && \
+    echo '    ' >> /usr/local/bin/build-installer.sh && \
+    echo '    echo "Windows distributable created at: $WINDOWS_DIST"' >> /usr/local/bin/build-installer.sh && \
+    echo '}' >> /usr/local/bin/build-installer.sh && \
+    echo '' >> /usr/local/bin/build-installer.sh && \
+    echo '# Function to build NSIS installer' >> /usr/local/bin/build-installer.sh && \
+    echo 'build_nsis_installer() {' >> /usr/local/bin/build-installer.sh && \
+    echo '    echo "Building NSIS installer..."' >> /usr/local/bin/build-installer.sh && \
+    echo '    cd /app' >> /usr/local/bin/build-installer.sh && \
+    echo '    if [ -f "windows-installer-simple.nsi" ]; then' >> /usr/local/bin/build-installer.sh && \
+    echo '        # Try native Linux NSIS first with simple script' >> /usr/local/bin/build-installer.sh && \
+    echo '        if command -v makensis >/dev/null 2>&1; then' >> /usr/local/bin/build-installer.sh && \
+    echo '            echo "Using native Linux NSIS..."' >> /usr/local/bin/build-installer.sh && \
+    echo '            makensis windows-installer-simple.nsi' >> /usr/local/bin/build-installer.sh && \
+    echo '        else' >> /usr/local/bin/build-installer.sh && \
+    echo '            echo "Using Wine NSIS..."' >> /usr/local/bin/build-installer.sh && \
+    echo '            wine $NSIS_HOME/makensis.exe windows-installer-simple.nsi' >> /usr/local/bin/build-installer.sh && \
+    echo '        fi' >> /usr/local/bin/build-installer.sh && \
+    echo '    elif [ -f "windows-installer.nsi" ]; then' >> /usr/local/bin/build-installer.sh && \
+    echo '        # Fallback to complex script if simple one is not available' >> /usr/local/bin/build-installer.sh && \
+    echo '        if command -v makensis >/dev/null 2>&1; then' >> /usr/local/bin/build-installer.sh && \
+    echo '            echo "Using native Linux NSIS..."' >> /usr/local/bin/build-installer.sh && \
+    echo '            makensis windows-installer.nsi' >> /usr/local/bin/build-installer.sh && \
+    echo '        else' >> /usr/local/bin/build-installer.sh && \
+    echo '            echo "Using Wine NSIS..."' >> /usr/local/bin/build-installer.sh && \
+    echo '            wine $NSIS_HOME/makensis.exe windows-installer.nsi' >> /usr/local/bin/build-installer.sh && \
+    echo '        fi' >> /usr/local/bin/build-installer.sh && \
+    echo '    else' >> /usr/local/bin/build-installer.sh && \
+    echo '        echo "NSIS script not found"' >> /usr/local/bin/build-installer.sh && \
+    echo '        return 1' >> /usr/local/bin/build-installer.sh && \
+    echo '    fi' >> /usr/local/bin/build-installer.sh && \
+    echo '}' >> /usr/local/bin/build-installer.sh && \
+    echo '' >> /usr/local/bin/build-installer.sh && \
+    echo '# Main execution' >> /usr/local/bin/build-installer.sh && \
+    echo 'if [ "$1" = "build" ]; then' >> /usr/local/bin/build-installer.sh && \
+    echo '    create_windows_dist' >> /usr/local/bin/build-installer.sh && \
+    echo '    build_nsis_installer' >> /usr/local/bin/build-installer.sh && \
+    echo 'else' >> /usr/local/bin/build-installer.sh && \
+    echo '    exec "$@"' >> /usr/local/bin/build-installer.sh && \
+    echo 'fi' >> /usr/local/bin/build-installer.sh
+
+RUN chmod +x /usr/local/bin/build-installer.sh
+
+# Set up entry point
+ENTRYPOINT ["/usr/local/bin/build-installer.sh"]
