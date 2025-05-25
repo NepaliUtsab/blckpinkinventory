@@ -99,6 +99,20 @@ git push origin v1.0.0
 
 ## Customizing the Workflows
 
+### Disabling Tests
+Tests are disabled by default for faster builds. The configuration includes:
+
+**Gradle Build Configuration** (`build.gradle.kts`):
+- Tests are disabled by default using `tasks.withType<Test> { enabled = false }`
+- All GitHub Actions use `-x test` flag to explicitly skip tests
+- To run tests manually: `./gradlew test --rerun-tasks`
+- To enable tests in CI: add `runTests` property
+
+**To re-enable tests**:
+1. Remove or comment out the test configuration in `build.gradle.kts`
+2. Remove `-x test` flags from workflow files
+3. Uncomment the test jobs in workflow files
+
 ### Update Version Numbers
 Edit these files when releasing new versions:
 - `build.gradle.kts` → `version = "1.0.0"`

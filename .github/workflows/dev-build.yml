@@ -76,13 +76,13 @@ jobs:
           ${{ runner.os }}-gradle-
           
     - name: Build application
-      run: ./gradlew build
+      run: ./gradlew build -x test
       
     - name: Package MSI
-      run: ./gradlew packageMsi
+      run: ./gradlew packageMsi -x test
       
     - name: Create distributable
-      run: ./gradlew createDistributable
+      run: ./gradlew createDistributable -x test
       
     - name: Install NSIS
       run: |

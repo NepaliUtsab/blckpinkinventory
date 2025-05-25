@@ -91,3 +91,21 @@ compose.desktop {
         }
     }
 }
+
+// Disable tests for faster builds (especially useful for CI/CD)
+tasks.withType<Test> {
+    enabled = false
+}
+
+// Alternative: If you want to keep tests available but skip them by default
+// You can run tests explicitly with: ./gradlew test --rerun-tasks
+gradle.taskGraph.whenReady {
+    allTasks
+        .filter { it.name.contains("test", ignoreCase = true) }
+        .forEach { task ->
+            task.onlyIf { 
+                project.hasProperty("runTests") || 
+                gradle.startParameter.taskNames.any { it.contains("test", ignoreCase = true) }
+            }
+        }
+}

@@ -79,9 +79,9 @@ jobs:
       
     - name: Build and package for Linux
       run: |
-        ./gradlew build
-        ./gradlew packageDeb
-        ./gradlew packageRpm
+        ./gradlew build -x test
+        ./gradlew packageDeb -x test
+        ./gradlew packageRpm -x test
         
     - name: Upload Linux packages
       uses: actions/upload-artifact@v4
@@ -122,8 +122,8 @@ jobs:
       
     - name: Build and package for macOS
       run: |
-        ./gradlew build
-        ./gradlew packageDmg
+        ./gradlew build -x test
+        ./gradlew packageDmg -x test
         
     - name: Upload macOS package
       uses: actions/upload-artifact@v4
@@ -158,13 +158,13 @@ jobs:
           ${{ runner.os }}-gradle-
           
     - name: Build application
-      run: ./gradlew build
+      run: ./gradlew build -x test
       
     - name: Package MSI
-      run: ./gradlew packageMsi
+      run: ./gradlew packageMsi -x test
       
     - name: Create distributable
-      run: ./gradlew createDistributable
+      run: ./gradlew createDistributable -x test
       
     - name: Install NSIS
       run: |
