@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run Application",
+      "type": "shell",
+      "command": "./gradlew run",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Application",
+      "type": "shell",
+      "command": "./gradlew build",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package macOS Application",
+      "type": "shell",
+      "command": "./gradlew packageDmg",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package Windows Application",
+      "type": "shell",
+      "command": "./gradlew packageMsi",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Package All",
+      "type": "shell",
+      "command": "./gradlew packageDmg packageMsi",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Clean",
+      "type": "shell",
+      "command": "./gradlew clean",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
